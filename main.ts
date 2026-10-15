@@ -291,11 +291,4 @@ bot.hears("Submit", async (ctx) => {
 });
 
 // ========== WEBHOOK ==========
-const WEBHOOK_URL = "https://modelmarket-bot.modelsmarket.deno.net/";
-
-if (BOT_TOKEN) {
-  await bot.api.setWebhook(WEBHOOK_URL);
-  console.log("Webhook set to:", WEBHOOK_URL);
-}
-
 Deno.serve(webhookCallback(bot, "std/http"));
