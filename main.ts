@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard, webhookCallback } from "https://deno.land/x/grammy@v1.30.0/mod.ts";
+import { Bot, InlineKeyboard, Keyboard, webhookCallback } from "https://deno.land/x/grammy@v1.30.0/mod.ts";
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN") || "";
 const ADMIN_ID = Deno.env.get("ADMIN_ID") || "";
@@ -59,7 +59,7 @@ const MODELS = [
   { id: 50, name: "Bella", price: 880, photo: "https://i.pravatar.cc/400?img=50" },
 ];
 
-// ========== CRYPTO ADDRESSES (à remplacer plus tard) ==========
+// ========== CRYPTO ADDRESSES ==========
 const CRYPTO_ADDRESSES = {
   BTC: "bc1qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   ETH: "0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -70,41 +70,62 @@ const CRYPTO_ADDRESSES = {
 // ========== SESSIONS ==========
 const sessions: Record<number, any> = {};
 
+// Claviers fixes
+const MAIN_MENU = new Keyboard()
+  .text("💡 About").text("💃🏼 View Model")
+  .resized();
+
+const CANCEL_MENU = new Keyboard()
+  .text("Cancel")
+  .resized();
+
+const CHOOSE_MENU = new Keyboard()
+  .text("Cancel").text("Choose")
+  .resized();
+
+const SELECT_MENU = new Keyboard()
+  .text("Cancel").text("Select")
+  .resized();
+
+const CRYPTO_MENU = new Keyboard()
+  .text("Cancel").text("Crypto")
+  .resized();
+
+const PROOF_MENU = new Keyboard()
+  .text("Cancel").text("Proof Sending")
+  .resized();
+
+const IMAGE_MENU = new Keyboard()
+  .text("Another Image").text("Submit")
+  .resized();
+
+const EMAIL_MENU = new Keyboard()
+  .text("Another Email").text("Submit")
+  .resized();
+
 // ========== START ==========
 bot.command("start", async (ctx) => {
-  const kb = new InlineKeyboard()
-    .text("💡 About", "about")
-    .text("💃🏼 View Model", "view_model");
-  await ctx.reply("Welcome to MODEL MARKET", { reply_markup: kb });
+  await ctx.reply("Welcome to MODEL MARKET", { reply_markup: MAIN_MENU });
 });
 
-// ========== ABOUT ==========
-bot.callbackQuery("about", async (ctx) => {
-  const kb = new InlineKeyboard()
-    .text("Cancel", "cancel_home")
-    .text("View Model", "view_model");
-  await ctx.editMessageText(
+bot.hears("💡 About", async (ctx) => {
+  await ctx.reply(
     "Marketplace allowing customers to select a model, enter into a service contract, make payment in cryptocurrency and formalize their commitment by signing the contract before the start of the collaboration.",
-    { reply_markup: kb }
+    { reply_markup: new Keyboard().text("Cancel").text("View Model").resized() }
   );
-  await ctx.answerCallbackQuery();
 });
 
-// ========== CANCEL HOME ==========
-bot.callbackQuery("cancel_home", async (ctx) => {
-  const kb = new InlineKeyboard()
-    .text("💡 About", "about")
-    .text("💃🏼 View Model", "view_model");
-  await ctx.editMessageText("Welcome to MODEL MARKET", { reply_markup: kb }).catch(async () => {
-    await ctx.reply("Welcome to MODEL MARKET", { reply_markup: kb });
-  });
-  await ctx.answerCallbackQuery();
-});
-
-// ========== VIEW MODEL ==========
-bot.callbackQuery("view_model", async (ctx) => {
-  await ctx.answerCallbackQuery();
+bot.hears("💃🏼 View Model", async (ctx) => {
   await sendModels(ctx, 0);
+});
+
+bot.hears("View Model", async (ctx) => {
+  await sendModels(ctx, 0);
+});
+
+bot.hears("Cancel", async (ctx) => {
+  delete sessions[ctx.from.id];
+  await ctx.reply("Welcome to MODEL MARKET", { reply_markup: MAIN_MENU });
 });
 
 async function sendModels(ctx: any, startIndex: number) {
@@ -117,7 +138,7 @@ async function sendModels(ctx: any, startIndex: number) {
       reply_markup: kb,
     });
   }
-  const kb = new InlineKeyboard().text("Cancel", "cancel_home");
+  const kb = new InlineKeyboard();
   if (end < MODELS.length) {
     kb.text("More", `more_${end}`);
   }
@@ -137,43 +158,34 @@ bot.callbackQuery(/^choose_(\d+)$/, async (ctx) => {
   const m = MODELS.find((x) => x.id === id);
   if (!m) return;
   sessions[ctx.from.id] = { ...sessions[ctx.from.id], model: m };
-  const kb = new InlineKeyboard()
-    .text("Cancel", "cancel_home")
-    .text("Select", "select_model");
   await ctx.replyWithPhoto(m.photo, {
     caption: `#${m.id} ${m.name} — $${m.price}`,
-    reply_markup: kb,
+    reply_markup: SELECT_MENU,
   });
   await ctx.answerCallbackQuery();
 });
 
 // ========== SELECT ==========
-bot.callbackQuery("select_model", async (ctx) => {
-  const kb = new InlineKeyboard()
-    .text("Cancel", "cancel_home")
-    .text("Crypto", "crypto");
-  await ctx.editMessageCaption({
-    caption: "You are about to enter into a collaboration with this model, please choose the payment method.",
-    reply_markup: kb,
-  });
-  await ctx.answerCallbackQuery();
+bot.hears("Select", async (ctx) => {
+  await ctx.reply(
+    "You are about to enter into a collaboration with this model, please choose the payment method.",
+    { reply_markup: CRYPTO_MENU }
+  );
 });
 
 // ========== CRYPTO ==========
-bot.callbackQuery("crypto", async (ctx) => {
+bot.hears("Crypto", async (ctx) => {
   const kb = new InlineKeyboard()
     .text("Bitcoin (BTC)", "crypto_BTC")
     .text("Ethereum (ETH)", "crypto_ETH")
     .row()
     .text("Litecoin (LTC)", "crypto_LTC")
-    .text("Tron (TRX)", "crypto_TRX")
-    .row()
-    .text("Cancel", "cancel_home");
-  await ctx.editMessageCaption({
-    caption: "Choose a crypto address, please send the fiat to the selected address, no error is remediable.",
-    reply_markup: kb,
-  });
-  await ctx.answerCallbackQuery();
+    .text("Tron (TRX)", "crypto_TRX");
+
+  await ctx.reply(
+    "Choose a crypto address, please send the fiat to the selected address, no error is remediable.",
+    { reply_markup: kb }
+  );
 });
 
 // ========== CHOIX CRYPTO ==========
@@ -184,19 +196,17 @@ bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
   const price = session.model ? session.model.price : "?";
   await ctx.reply(`Please send the $${price} to the selected crypto wallet ${crypto}.`);
   await ctx.reply(`Address:\n\n${addr}`);
-  await ctx.reply("Once the payment is made, please click on the Proof Sending button and send a photo of your transaction.");
-  const kb = new InlineKeyboard()
-    .text("Cancel", "cancel_home")
-    .text("Proof Sending", "proof_sending");
-  await ctx.reply("Actions:", { reply_markup: kb });
+  await ctx.reply(
+    "Once the payment is made, please click on the Proof Sending button and send a photo of your transaction.",
+    { reply_markup: PROOF_MENU }
+  );
   await ctx.answerCallbackQuery();
 });
 
 // ========== PROOF SENDING ==========
-bot.callbackQuery("proof_sending", async (ctx) => {
+bot.hears("Proof Sending", async (ctx) => {
   sessions[ctx.from.id] = { ...sessions[ctx.from.id], awaitingProof: true };
   await ctx.reply("Please send a photo of your transaction.");
-  await ctx.answerCallbackQuery();
 });
 
 // ========== RÉCEPTION PHOTO ==========
@@ -209,24 +219,41 @@ bot.on("message:photo", async (ctx) => {
   });
   session.proofFileId = fileId;
   sessions[ctx.from.id] = session;
-  const kb = new InlineKeyboard()
-    .text("Another Image", "another_image")
-    .text("Submit", "submit_proof");
-  await ctx.reply("Photo received.", { reply_markup: kb });
+  await ctx.reply("Photo received.", { reply_markup: IMAGE_MENU });
 });
 
 // ========== ANOTHER IMAGE ==========
-bot.callbackQuery("another_image", async (ctx) => {
+bot.hears("Another Image", async (ctx) => {
   sessions[ctx.from.id] = { ...sessions[ctx.from.id], awaitingProof: true };
   await ctx.reply("Please send another photo.");
-  await ctx.answerCallbackQuery();
 });
 
 // ========== SUBMIT PROOF ==========
-bot.callbackQuery("submit_proof", async (ctx) => {
-  sessions[ctx.from.id] = { ...sessions[ctx.from.id], awaitingEmail: true, awaitingProof: false };
-  await ctx.reply("You will receive a contract email from the selected model once your transaction is verified. Please enter the Gmail address you would like to be contacted at.");
-  await ctx.answerCallbackQuery();
+bot.hears("Submit", async (ctx) => {
+  const session = sessions[ctx.from.id] || {};
+
+  if (session.awaitingEmail) {
+    // Étape finale email
+    await ctx.api.sendMessage(
+      ADMIN_ID,
+      `Final submission:\nModel: #${session.model?.id} ${session.model?.name}\nPrice: $${session.model?.price}\nEmail: ${session.email}\nUser: @${ctx.from.username || ctx.from.id}`
+    );
+    await ctx.reply(
+      "Congratulations! Your information has been sent successfully. You will receive an email shortly. Thank you for your trust.",
+      { reply_markup: MAIN_MENU }
+    );
+    delete sessions[ctx.from.id];
+    return;
+  }
+
+  if (session.proofFileId) {
+    // Étape email
+    sessions[ctx.from.id] = { ...session, awaitingEmail: true, awaitingProof: false };
+    await ctx.reply(
+      "You will receive a contract email from the selected model once your transaction is verified. Please enter the Gmail address you would like to be contacted at.",
+      { reply_markup: new Keyboard().remove() }
+    );
+  }
 });
 
 // ========== RÉCEPTION EMAIL ==========
@@ -240,30 +267,13 @@ bot.on("message:text", async (ctx) => {
   }
   session.email = email;
   sessions[ctx.from.id] = session;
-  const kb = new InlineKeyboard()
-    .text("Another Email", "another_email")
-    .text("Submit", "submit_email");
-  await ctx.reply(`Email recorded: ${email}`, { reply_markup: kb });
+  await ctx.reply(`Email recorded: ${email}`, { reply_markup: EMAIL_MENU });
 });
 
 // ========== ANOTHER EMAIL ==========
-bot.callbackQuery("another_email", async (ctx) => {
+bot.hears("Another Email", async (ctx) => {
   sessions[ctx.from.id] = { ...sessions[ctx.from.id], awaitingEmail: true };
-  await ctx.reply("Please enter another email.");
-  await ctx.answerCallbackQuery();
-});
-
-// ========== SUBMIT EMAIL ==========
-bot.callbackQuery("submit_email", async (ctx) => {
-  const session = sessions[ctx.from.id] || {};
-  await ctx.api.sendMessage(
-    ADMIN_ID,
-    `Final submission:\nModel: #${session.model?.id} ${session.model?.name}\nPrice: $${session.model?.price}\nEmail: ${session.email}\nUser: @${ctx.from.username || ctx.from.id}`
-  );
-  const kb = new InlineKeyboard().text("Start", "cancel_home");
-  await ctx.reply("Congratulations! Your information has been sent successfully. You will receive an email shortly. Thank you for your trust.", { reply_markup: kb });
-  delete sessions[ctx.from.id];
-  await ctx.answerCallbackQuery();
+  await ctx.reply("Please enter another email.", { reply_markup: new Keyboard().remove() });
 });
 
 // ========== WEBHOOK ==========
