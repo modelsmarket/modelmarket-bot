@@ -4,6 +4,7 @@ const BOT_TOKEN = Deno.env.get("BOT_TOKEN") || "";
 const ADMIN_ID = Deno.env.get("ADMIN_ID") || "";
 
 const bot = new Bot(BOT_TOKEN);
+const kv = await Deno.openKv();
 
 // ========== MODELS ==========
 const MODELS = [
@@ -47,8 +48,19 @@ const CRYPTO_ADDRESSES = {
   TRX: "TNtWGZo7T35xcHDT8LVUP9rvAcB4D6D1px",
 };
 
-// ========== SESSIONS ==========
-const sessions: Record<number, any> = {};
+// ========== KV HELPERS ==========
+async function getSession(userId: number) {
+  const res = await kv.get(["sessions", userId]);
+  return res.value || {};
+}
+
+async function setSession(userId: number, data: any) {
+  await kv.set(["sessions", userId], data);
+}
+
+async function deleteSession(userId: number) {
+  await kv.delete(["sessions", userId]);
+}
 
 // ========== CLAVIERS ==========
 const MAIN_MENU = new Keyboard()
@@ -77,7 +89,7 @@ const EMAIL_MENU = new Keyboard()
 
 // ========== START ==========
 bot.command("start", async (ctx) => {
-  delete sessions[ctx.from.id];
+  await deleteSession(ctx.from.id);
   await ctx.reply("Welcome to MODEL MARKET", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
 });
 
@@ -100,7 +112,7 @@ bot.hears("View Model", async (ctx) => {
 
 // ========== CANCEL ==========
 bot.hears("Cancel", async (ctx) => {
-  delete sessions[ctx.from.id];
+  await deleteSession(ctx.from.id);
   await ctx.reply("Welcome to MODEL MARKET", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
 });
 
@@ -135,7 +147,9 @@ bot.callbackQuery(/^choose_(\d+)$/, async (ctx) => {
   const m = MODELS.find((x) => x.id === id);
   if (!m) return;
 
-  sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), model: m };
+  const session = await getSession(ctx.from.id);
+  session.model = m;
+  await setSession(ctx.from.id, session);
 
   await ctx.replyWithPhoto(m.photo, {
     caption: `<b>#${m.id} ${m.name}</b> — <b>$${m.price}</b>`,
@@ -147,8 +161,8 @@ bot.callbackQuery(/^choose_(\d+)$/, async (ctx) => {
 
 // ========== SELECT ==========
 bot.hears("Select", async (ctx) => {
-  const session = sessions[ctx.from.id];
-  if (!session || !session.model) {
+  const session = await getSession(ctx.from.id);
+  if (!session.model) {
     await ctx.reply("Please choose a model first.", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
     return;
   }
@@ -178,7 +192,7 @@ bot.hears("Crypto", async (ctx) => {
 bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
   const crypto = ctx.match[1];
   const addr = CRYPTO_ADDRESSES[crypto as keyof typeof CRYPTO_ADDRESSES];
-  const session = sessions[ctx.from.id] || {};
+  const session = await getSession(ctx.from.id);
 
   if (!session.model) {
     await ctx.answerCallbackQuery();
@@ -206,15 +220,16 @@ bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
 
 // ========== PROOF SENDING ==========
 bot.hears("Proof Sending", async (ctx) => {
-  // Réponse immédiate
-  await ctx.reply("⏳ Awaiting your photo...", { parse_mode: "HTML" });
+  const session = await getSession(ctx.from.id);
+  session.awaitingProof = true;
+  await setSession(ctx.from.id, session);
 
-  sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingProof: true };
+  await ctx.reply("⏳ Awaiting your photo...", { parse_mode: "HTML" });
 });
 
 // ========== RÉCEPTION PHOTO ==========
 bot.on("message:photo", async (ctx) => {
-  const session = sessions[ctx.from.id] || {};
+  const session = await getSession(ctx.from.id);
   if (!session.awaitingProof) return;
 
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -226,24 +241,32 @@ bot.on("message:photo", async (ctx) => {
 
   session.proofFileId = fileId;
   session.awaitingProof = false;
-  sessions[ctx.from.id] = session;
+  await setSession(ctx.from.id, session);
 
   await ctx.reply("✅ Photo received.", { reply_markup: IMAGE_MENU, parse_mode: "HTML" });
 });
 
 // ========== ANOTHER IMAGE ==========
 bot.hears("Another Image", async (ctx) => {
+  const session = await getSession(ctx.from.id);
+  session.awaitingProof = true;
+  await setSession(ctx.from.id, session);
+
   await ctx.reply("⏳ Awaiting your photo...", { parse_mode: "HTML" });
-  sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingProof: true };
 });
 
 // ========== SUBMIT (double étape) ==========
 bot.hears("Submit", async (ctx) => {
-  const session = sessions[ctx.from.id] || {};
+  const session = await getSession(ctx.from.id);
 
-  // Étape 2 : soumission finale (email déjà enregistré)
+  // Verrou anti-doublon
+  if (session.processing) return;
+
+  // Étape 2 : soumission finale
   if (session.awaitingEmail && session.email) {
-    // Réponse immédiate
+    session.processing = true;
+    await setSession(ctx.from.id, session);
+
     await ctx.reply("⏳ Sending final submission...", { parse_mode: "HTML" });
 
     await ctx.api.sendMessage(
@@ -257,17 +280,20 @@ bot.hears("Submit", async (ctx) => {
       { reply_markup: MAIN_MENU, parse_mode: "HTML" }
     );
 
-    delete sessions[ctx.from.id];
+    await deleteSession(ctx.from.id);
     return;
   }
 
   // Étape 1 : photo reçue, on demande l'email
   if (session.proofFileId) {
-    // Réponse immédiate
+    session.processing = true;
+    await setSession(ctx.from.id, session);
+
     await ctx.reply("⏳ Processing...", { parse_mode: "HTML" });
 
     session.awaitingEmail = true;
-    sessions[ctx.from.id] = session;
+    session.processing = false;
+    await setSession(ctx.from.id, session);
 
     await ctx.reply(
       "You will receive a contract email from the selected model once your transaction is verified. Please enter the Gmail address you would like to be contacted at.",
@@ -276,13 +302,12 @@ bot.hears("Submit", async (ctx) => {
     return;
   }
 
-  // Aucun cas valide
   await ctx.reply("Please complete the previous steps first.", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
 });
 
 // ========== RÉCEPTION EMAIL ==========
 bot.on("message:text", async (ctx) => {
-  const session = sessions[ctx.from.id] || {};
+  const session = await getSession(ctx.from.id);
   if (!session.awaitingEmail) return;
 
   const email = ctx.message.text;
@@ -293,15 +318,18 @@ bot.on("message:text", async (ctx) => {
   }
 
   session.email = email;
-  sessions[ctx.from.id] = session;
+  await setSession(ctx.from.id, session);
 
   await ctx.reply(`✅ Email recorded: <b>${email}</b>`, { reply_markup: EMAIL_MENU, parse_mode: "HTML" });
 });
 
 // ========== ANOTHER EMAIL ==========
 bot.hears("Another Email", async (ctx) => {
+  const session = await getSession(ctx.from.id);
+  session.awaitingEmail = true;
+  await setSession(ctx.from.id, session);
+
   await ctx.reply("⏳ Please enter another email.", { reply_markup: new Keyboard().remove(), parse_mode: "HTML" });
-  sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingEmail: true };
 });
 
 // ========== WEBHOOK ==========
