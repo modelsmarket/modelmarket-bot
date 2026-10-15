@@ -145,6 +145,7 @@ bot.callbackQuery(/^choose_(\d+)$/, async (ctx) => {
 
   const session = await getSession(ctx.from.id);
   session.model = m;
+  session.step = "awaiting_email";
   await setSession(ctx.from.id, session);
 
   await ctx.replyWithPhoto(m.photo, {
@@ -163,34 +164,12 @@ bot.hears("Select", async (ctx) => {
     return;
   }
 
-  session.awaitingEmail = true;
+  session.step = "awaiting_email";
   await setSession(ctx.from.id, session);
 
   await ctx.reply(
     "Please enter the Gmail address you would like to be contacted at.",
     { reply_markup: { remove_keyboard: true }, parse_mode: "HTML" }
-  );
-});
-
-// ========== RÉCEPTION EMAIL ==========
-bot.on("message:text", async (ctx) => {
-  const session = await getSession(ctx.from.id);
-  if (!session.awaitingEmail) return;
-
-  const email = ctx.message.text;
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    await ctx.reply("Please enter a valid email address.", { parse_mode: "HTML" });
-    return;
-  }
-
-  session.email = email;
-  session.awaitingEmail = false;
-  await setSession(ctx.from.id, session);
-
-  await ctx.reply(
-    `Email recorded: <b>${email}</b>\n\nYou are about to enter into a collaboration with this model, please choose the payment method.`,
-    { reply_markup: CRYPTO_MENU, parse_mode: "HTML" }
   );
 });
 
@@ -209,7 +188,39 @@ bot.hears("Crypto", async (ctx) => {
   );
 });
 
-// ========== CHOIX CRYPTO ==========
+// ========== PROOF SENDING ==========
+bot.hears("Proof Sending", async (ctx) => {
+  const session = await getSession(ctx.from.id);
+  session.awaitingProof = true;
+  await setSession(ctx.from.id, session);
+
+  await ctx.reply("Please send a photo of your transaction.", { parse_mode: "HTML" });
+});
+
+// ========== SUBMIT ==========
+bot.hears("Submit", async (ctx) => {
+  const session = await getSession(ctx.from.id);
+
+  if (!session.proofFileId) {
+    await ctx.reply("Please send a photo first.", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
+    return;
+  }
+
+  await ctx.api.sendMessage(
+    ADMIN_ID,
+    `<b>Final submission</b>\nModel: <b>#${session.model?.id} ${session.model?.name}</b>\nPrice: <b>$${session.model?.price}</b>\nEmail: <b>${session.email}</b>\nUser: @${ctx.from.username || ctx.from.id}`,
+    { parse_mode: "HTML" }
+  );
+
+  await ctx.reply(
+    "Congratulations! Your information has been sent successfully. You will receive an email shortly. Thank you for your trust.",
+    { reply_markup: MAIN_MENU, parse_mode: "HTML" }
+  );
+
+  await deleteSession(ctx.from.id);
+});
+
+// ========== CHOIX CRYPTO (callback inline) ==========
 bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
   const crypto = ctx.match[1];
   const addr = CRYPTO_ADDRESSES[crypto as keyof typeof CRYPTO_ADDRESSES];
@@ -239,15 +250,6 @@ bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// ========== PROOF SENDING ==========
-bot.hears("Proof Sending", async (ctx) => {
-  const session = await getSession(ctx.from.id);
-  session.awaitingProof = true;
-  await setSession(ctx.from.id, session);
-
-  await ctx.reply("Please send a photo of your transaction.", { parse_mode: "HTML" });
-});
-
 // ========== RÉCEPTION PHOTO ==========
 bot.on("message:photo", async (ctx) => {
   const session = await getSession(ctx.from.id);
@@ -267,27 +269,32 @@ bot.on("message:photo", async (ctx) => {
   await ctx.reply("Photo received.", { reply_markup: IMAGE_MENU, parse_mode: "HTML" });
 });
 
-// ========== SUBMIT (juste félicitations) ==========
-bot.hears("Submit", async (ctx) => {
+// ========== RÉCEPTION EMAIL (EN DERNIER pour ne pas bloquer les autres) ==========
+bot.on("message:text", async (ctx) => {
   const session = await getSession(ctx.from.id);
 
-  if (!session.proofFileId) {
-    await ctx.reply("Please send a photo first.", { reply_markup: MAIN_MENU, parse_mode: "HTML" });
+  // Ne traiter que si on attend un email
+  if (session.step !== "awaiting_email") return;
+
+  // Ignorer les clics de bouton clavier
+  const text = ctx.message.text;
+  const ignoredTexts = ["💡 About", "💃🏼 View Model", "View Model", "Cancel", "Select", "Crypto", "Proof Sending", "Submit", "Another Image", "Another Email"];
+  if (ignoredTexts.includes(text)) return;
+
+  // Valider l'email
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+    await ctx.reply("Please enter a valid email address.", { parse_mode: "HTML" });
     return;
   }
 
-  await ctx.api.sendMessage(
-    ADMIN_ID,
-    `<b>Final submission</b>\nModel: <b>#${session.model?.id} ${session.model?.name}</b>\nPrice: <b>$${session.model?.price}</b>\nEmail: <b>${session.email}</b>\nUser: @${ctx.from.username || ctx.from.id}`,
-    { parse_mode: "HTML" }
-  );
+  session.email = text;
+  session.step = "crypto";
+  await setSession(ctx.from.id, session);
 
   await ctx.reply(
-    "Congratulations! Your information has been sent successfully. You will receive an email shortly. Thank you for your trust.",
-    { reply_markup: MAIN_MENU, parse_mode: "HTML" }
+    `Email recorded: <b>${text}</b>\n\nYou are about to enter into a collaboration with this model, please choose the payment method.`,
+    { reply_markup: CRYPTO_MENU, parse_mode: "HTML" }
   );
-
-  await deleteSession(ctx.from.id);
 });
 
 // ========== WEBHOOK ==========
