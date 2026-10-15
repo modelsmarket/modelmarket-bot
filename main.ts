@@ -5,7 +5,7 @@ const ADMIN_ID = Deno.env.get("ADMIN_ID") || "";
 
 const bot = new Bot(BOT_TOKEN);
 
-// ========== MODELS (noms normalisés avec première lettre en majuscule) ==========
+// ========== MODELS ==========
 const MODELS = [
   { id: 1, name: "Ercine", price: 620, photo: "https://raw.githubusercontent.com/modelsmarket/modelmarket-bot/main/images/Ercine.jpg" },
   { id: 2, name: "Eunice", price: 680, photo: "https://raw.githubusercontent.com/modelsmarket/modelmarket-bot/main/images/Eunice.jpg" },
@@ -206,8 +206,10 @@ bot.callbackQuery(/^crypto_(\w+)$/, async (ctx) => {
 
 // ========== PROOF SENDING ==========
 bot.hears("Proof Sending", async (ctx) => {
+  // Réponse immédiate
+  await ctx.reply("⏳ Awaiting your photo...", { parse_mode: "HTML" });
+
   sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingProof: true };
-  await ctx.reply("Please send a photo of your transaction.", { parse_mode: "HTML" });
 });
 
 // ========== RÉCEPTION PHOTO ==========
@@ -226,13 +228,13 @@ bot.on("message:photo", async (ctx) => {
   session.awaitingProof = false;
   sessions[ctx.from.id] = session;
 
-  await ctx.reply("Photo received.", { reply_markup: IMAGE_MENU, parse_mode: "HTML" });
+  await ctx.reply("✅ Photo received.", { reply_markup: IMAGE_MENU, parse_mode: "HTML" });
 });
 
 // ========== ANOTHER IMAGE ==========
 bot.hears("Another Image", async (ctx) => {
+  await ctx.reply("⏳ Awaiting your photo...", { parse_mode: "HTML" });
   sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingProof: true };
-  await ctx.reply("Please send another photo.", { parse_mode: "HTML" });
 });
 
 // ========== SUBMIT (double étape) ==========
@@ -241,6 +243,9 @@ bot.hears("Submit", async (ctx) => {
 
   // Étape 2 : soumission finale (email déjà enregistré)
   if (session.awaitingEmail && session.email) {
+    // Réponse immédiate
+    await ctx.reply("⏳ Sending final submission...", { parse_mode: "HTML" });
+
     await ctx.api.sendMessage(
       ADMIN_ID,
       `<b>Final submission</b>\nModel: <b>#${session.model?.id} ${session.model?.name}</b>\nPrice: <b>$${session.model?.price}</b>\nEmail: <b>${session.email}</b>\nUser: @${ctx.from.username || ctx.from.id}`,
@@ -258,6 +263,9 @@ bot.hears("Submit", async (ctx) => {
 
   // Étape 1 : photo reçue, on demande l'email
   if (session.proofFileId) {
+    // Réponse immédiate
+    await ctx.reply("⏳ Processing...", { parse_mode: "HTML" });
+
     session.awaitingEmail = true;
     sessions[ctx.from.id] = session;
 
@@ -287,13 +295,13 @@ bot.on("message:text", async (ctx) => {
   session.email = email;
   sessions[ctx.from.id] = session;
 
-  await ctx.reply(`Email recorded: <b>${email}</b>`, { reply_markup: EMAIL_MENU, parse_mode: "HTML" });
+  await ctx.reply(`✅ Email recorded: <b>${email}</b>`, { reply_markup: EMAIL_MENU, parse_mode: "HTML" });
 });
 
 // ========== ANOTHER EMAIL ==========
 bot.hears("Another Email", async (ctx) => {
+  await ctx.reply("⏳ Please enter another email.", { reply_markup: new Keyboard().remove(), parse_mode: "HTML" });
   sessions[ctx.from.id] = { ...(sessions[ctx.from.id] || {}), awaitingEmail: true };
-  await ctx.reply("Please enter another email.", { reply_markup: new Keyboard().remove(), parse_mode: "HTML" });
 });
 
 // ========== WEBHOOK ==========
