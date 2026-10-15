@@ -168,7 +168,7 @@ bot.hears("Select", async (ctx) => {
 
   await ctx.reply(
     "Please enter the Gmail address you would like to be contacted at.",
-    { reply_markup: new Keyboard().remove(), parse_mode: "HTML" }
+    { reply_markup: { remove_keyboard: true }, parse_mode: "HTML" }
   );
 });
 
